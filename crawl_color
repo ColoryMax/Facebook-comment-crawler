@@ -1,0 +1,58 @@
+# -*- coding: UTF-8 -*-
+import requests
+import json
+import sqlite3
+from datetime import datetime, timedelta
+
+accesstoken = TOKEN
+afterpage = AFTER
+r = requests.get('https://graph.facebook.com/v2.7/100006477700709_1550976111794964/comments?access_token=' + accesstoken + '&limit=100&fields=message,id,from,created_time,attachment,likes,like_count&after=' + afterpage)
+	
+for i in range(0, 10000):
+	data = r.json()
+	url_next = data['paging']['next']
+	content = data['data']
+	
+	dbc = sqlite3.connect("C:\Users\Co1ory\Desktop\HGDB\FB.db")
+	dbc.text_factory = str
+	c = dbc.cursor()
+	
+	for row in range(0, len(content)):
+		comment = content[row]
+		
+		comment_id = comment['id']
+		created_time_raw = comment['created_time']
+		commenter_id = comment['from']['id']
+		commenter_name = comment['from']['name']
+		message = comment['message']
+		like_count = comment['like_count']
+		
+		created_time = datetime.strptime(created_time_raw, '%Y-%m-%dT%H:%M:%S+0000')
+		created_time += timedelta(hours=9)
+		created_time = datetime.strftime(created_time, '%Y-%m-%d %H:%M:%S')
+		
+		if 'attachment' in comment:
+			type = comment['attachment']['type']
+			if type == 'photo':
+				link = comment['attachment']['media']['image']['src']
+			else:
+				link = comment['attachment']['url']
+				
+			if 'media' in comment['attachment']:
+				height = comment['attachment']['media']['image']['height']
+				width = comment['attachment']['media']['image']['width']
+				c.execute("INSERT OR IGNORE INTO hg_comments (comment_id, date, user_id, user_name, comment, like_count, type, link, height, width) VALUES (?,?,?,?,?,?,?,?,?,?);", (comment_id, created_time, commenter_id, commenter_name, message, like_count, type, link, height, width))
+			else:
+				c.execute("INSERT OR IGNORE INTO hg_comments (comment_id, date, user_id, user_name, comment, like_count, type, link) VALUES (?,?,?,?,?,?,?,?);", (comment_id, created_time, commenter_id, commenter_name, message, like_count, type, link))
+			
+		else :
+			c.execute("INSERT OR IGNORE INTO hg_comments (comment_id, date, user_id, user_name, comment, like_count) VALUES (?,?,?,?,?,?);", (comment_id, created_time, commenter_id, commenter_name, message, like_count))
+		dbc.commit()
+		
+		if 'likes' in comment:
+			for like_cursor in range(0, len(comment['likes']['data'])):
+				c.execute("INSERT OR IGNORE INTO hg_like (comment_id, like_id) VALUES (?,?);", (comment_id, comment['likes']['data'][like_cursor]['id']))
+				dbc.commit()
+		
+	print ("Page " + str(i) + " Cleared : Next = " + data['paging']['cursors']['after'])
+	r = requests.get(url_next)
